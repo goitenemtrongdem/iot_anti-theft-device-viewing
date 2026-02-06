@@ -66,16 +66,23 @@ class _HomeVehiclePageState extends State<HomeVehiclePage> {
                     .where('userId', isEqualTo: user.uid)
                     .snapshots(),
                 builder: (context, snapshot) {
-                  if (!snapshot.hasData) return const SizedBox();
+                  if (!snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
 
                   return ListView(
                     children: snapshot.data!.docs.map((doc) {
                       final data = doc.data() as Map<String, dynamic>;
                       final vehicle = data['vehicle'] ?? {};
-                      final status =
-                          data['status'] == true || data['status'] == 1;
+                      final status = data['status'] == true || data['status'] == 1;
+                      final antiTheft = data['antiTheft'] == true;
 
-                      return _vehicleCard(doc.id, vehicle, status);
+                      return _vehicleCard(
+                        doc.id,
+                        vehicle,
+                        status,
+                        antiTheft,
+                      );
                     }).toList(),
                   );
                 },
@@ -98,7 +105,12 @@ class _HomeVehiclePageState extends State<HomeVehiclePage> {
   }
 
   // ================= VEHICLE CARD =================
-  Widget _vehicleCard(String deviceId, Map vehicle, bool status) {
+  Widget _vehicleCard(
+    String deviceId,
+    Map vehicle,
+    bool status,
+    bool antiTheft,
+  ) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
@@ -112,6 +124,7 @@ class _HomeVehiclePageState extends State<HomeVehiclePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ===== HEADER =====
           Row(
             children: [
               Icon(
@@ -127,17 +140,49 @@ class _HomeVehiclePageState extends State<HomeVehiclePage> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
+
+              // ===== STATUS SWITCH =====
+              Switch(
+                value: status,
+                activeColor: Colors.green,
+                onChanged: (val) => _updateStatus(deviceId, val),
+              ),
+
+              // ===== VIEW MAP =====
               IconButton(
                 icon: const Icon(Icons.search, size: 18),
                 onPressed: () => _showVerifyDialog(deviceId),
               ),
             ],
           ),
+
           const SizedBox(height: 6),
           _infoRow(Icons.directions_bike, vehicle['brand']),
           _infoRow(Icons.settings, vehicle['model']),
           _infoRow(Icons.confirmation_number, vehicle['licensePlate']),
           _infoRow(Icons.color_lens, vehicle['color']),
+
+          const Divider(),
+
+          // ===== ANTI THEFT =====
+          Row(
+            children: [
+              const Text(
+                'Anti-Theft',
+                style: TextStyle(fontSize: 12),
+              ),
+              const Spacer(),
+              IconButton(
+                icon: Icon(
+                  antiTheft ? Icons.lock : Icons.lock_open,
+                  color: antiTheft ? Colors.red : Colors.grey,
+                ),
+                onPressed: () => _handleAntiTheftToggle(
+               deviceId, !antiTheft,
+              ),
+              )
+            ],
+          ),
         ],
       ),
     );
@@ -210,8 +255,6 @@ class _HomeVehiclePageState extends State<HomeVehiclePage> {
                 }
               : {},
         ),
-
-        // ===== EXIT MAP =====
         Positioned(
           top: 20,
           right: 20,
@@ -233,7 +276,7 @@ class _HomeVehiclePageState extends State<HomeVehiclePage> {
     );
   }
 
-  // ================= VERIFY DIALOG =================
+  // ================= VERIFY =================
   void _showVerifyDialog(String deviceId) {
     final codeCtrl = TextEditingController();
 
@@ -245,8 +288,7 @@ class _HomeVehiclePageState extends State<HomeVehiclePage> {
         content: TextField(
           controller: codeCtrl,
           obscureText: true,
-          decoration:
-              const InputDecoration(labelText: 'Verification Code'),
+          decoration: const InputDecoration(labelText: 'Verification Code'),
         ),
         actions: [
           TextButton(
@@ -265,7 +307,6 @@ class _HomeVehiclePageState extends State<HomeVehiclePage> {
     );
   }
 
-  // ================= VERIFY + REALTIME =================
   Future<void> _verifyAndListen(String deviceId, String code) async {
     final snap = await FirebaseFirestore.instance
         .collection('devices')
@@ -340,13 +381,11 @@ class _HomeVehiclePageState extends State<HomeVehiclePage> {
 
     final deviceId = deviceIdController.text.trim();
 
-    await FirebaseFirestore.instance
-        .collection('devices')
-        .doc(deviceId)
-        .set({
+    await FirebaseFirestore.instance.collection('devices').doc(deviceId).set({
       'verificationCode': verificationCodeController.text.trim(),
       'userId': user.uid,
       'status': false,
+      'antiTheft': false,
       'vehicle': {
         'brand': brandController.text.trim(),
         'model': modelController.text.trim(),
@@ -362,13 +401,60 @@ class _HomeVehiclePageState extends State<HomeVehiclePage> {
     });
   }
 
+  // ================= FIRESTORE UPDATE =================
+  Future<void> _updateStatus(String deviceId, bool value) async {
+  final snap = await FirebaseFirestore.instance
+      .collection('devices')
+      .doc(deviceId)
+      .get();
+
+  final antiTheft = snap['antiTheft'] == true;
+
+  // ❌ Không cho tắt GPS khi đang Anti-Theft
+  if (antiTheft && value == false) {
+    _toast('Cannot turn off GPS while Anti-Theft is ON', false);
+    return;
+  }
+
+  await FirebaseFirestore.instance
+      .collection('devices')
+      .doc(deviceId)
+      .update({
+        'status': value ? 1 : 0,
+      });
+}
+
+  Future<void> _updateAntiTheft(String deviceId, bool value) async {
+    await FirebaseFirestore.instance
+        .collection('devices')
+        .doc(deviceId)
+        .update({'antiTheft': value});
+  }
+  Future<void> _handleAntiTheftToggle(
+  String deviceId,
+  bool antiTheftValue,
+) async {
+final Map<String, dynamic> data = {
+  'antiTheft': antiTheftValue,
+};
+
+  // 👉 Nếu bật Anti-Theft → ép GPS ON
+  if (antiTheftValue == true) {
+    data['status'] = 1;
+  }
+
+  await FirebaseFirestore.instance
+      .collection('devices')
+      .doc(deviceId)
+      .update(data);
+}
+
   // ================= UTIL =================
   void _toast(String msg, bool ok) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
         backgroundColor: ok ? Colors.green : Colors.red,
-        duration: const Duration(seconds: 2),
       ),
     );
   }
@@ -392,8 +478,7 @@ class _HomeVehiclePageState extends State<HomeVehiclePage> {
       decoration: InputDecoration(
         labelText: 'Verification Code',
         suffixIcon: IconButton(
-          icon:
-              Icon(hideCode ? Icons.visibility_off : Icons.visibility),
+          icon: Icon(hideCode ? Icons.visibility_off : Icons.visibility),
           onPressed: () => setState(() => hideCode = !hideCode),
         ),
       ),

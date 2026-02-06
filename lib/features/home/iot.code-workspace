@@ -1,0 +1,25 @@
+{
+	"folders": [
+		{
+			"path": "../../../../iot"
+		},
+		{
+			"path": "../../../../vision_AI"
+		},
+		{
+			"path": "../../../../python"
+		},
+		{
+			"path": "../../../../log"
+		},
+		{
+			"path": "../../../../app_iot"
+		},
+		{
+			"path": "../../.."
+		}
+	],
+	"settings": {
+		"git.ignoreLimitWarning": true
+	}
+}
